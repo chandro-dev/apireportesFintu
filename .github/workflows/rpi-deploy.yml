@@ -36,26 +36,6 @@ jobs:
           echo ".env lines: $(wc -l < .env)"
           echo ".env bytes: $(wc -c < .env)"
           echo ".env keys:"
-          grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .env | cut -d '=' -f1 | sort || true
-
-          raw_smtp_pass="$(grep -E '^SMTP_PASS=' .env | head -n1 | cut -d '=' -f2- || true)"
-          echo "SMTP_PASS raw length: ${#raw_smtp_pass}"
-          if [[ "$raw_smtp_pass" == \"* ]]; then
-            echo "SMTP_PASS starts with quote: true"
-          else
-            echo "SMTP_PASS starts with quote: false"
-          fi
-          if [[ "$raw_smtp_pass" == *\" ]]; then
-            echo "SMTP_PASS ends with quote: true"
-          else
-            echo "SMTP_PASS ends with quote: false"
-          fi
-          if [[ "$raw_smtp_pass" == *" "* ]]; then
-            echo "SMTP_PASS contains spaces: true"
-          else
-            echo "SMTP_PASS contains spaces: false"
-          fi
-
       - name: Validate required keys for this app
         shell: bash
         run: |
