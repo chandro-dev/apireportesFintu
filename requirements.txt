@@ -1,0 +1,5 @@
+Flask==3.0.3
+python-dotenv==1.0.1
+psycopg[binary]==3.2.9
+flasgger==0.9.7.1
+gunicorn==22.0.0
