@@ -63,8 +63,40 @@ jobs:
             echo "Missing docker-compose.yml or compose.yml in repository root."
             exit 1
           fi
-          docker compose up -d --build --remove-orphans
+
+          server_api="$(docker version --format '{{.Server.APIVersion}}' || true)"
+          if [ -n "$server_api" ]; then
+            echo "Using Docker Server API version: $server_api"
+            export DOCKER_API_VERSION="$server_api"
+          else
+            echo "Could not detect server API version. Falling back to 1.41"
+            export DOCKER_API_VERSION="1.41"
+          fi
+
+          if docker compose version >/dev/null 2>&1; then
+            docker compose up -d --build --remove-orphans
+          elif docker-compose version >/dev/null 2>&1; then
+            docker-compose up -d --build --remove-orphans
+          else
+            echo "Neither 'docker compose' nor 'docker-compose' is available."
+            exit 1
+          fi
 
       - name: Show container status
         shell: bash
-        run: docker compose ps
+        run: |
+          server_api="$(docker version --format '{{.Server.APIVersion}}' || true)"
+          if [ -n "$server_api" ]; then
+            export DOCKER_API_VERSION="$server_api"
+          else
+            export DOCKER_API_VERSION="1.41"
+          fi
+
+          if docker compose version >/dev/null 2>&1; then
+            docker compose ps
+          elif docker-compose version >/dev/null 2>&1; then
+            docker-compose ps
+          else
+            echo "Neither 'docker compose' nor 'docker-compose' is available."
+            exit 1
+          fi
