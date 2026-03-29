@@ -1,35 +1,58 @@
-# API de reportes semanales (Supabase + Flask)
+# Fintu Backend Core
 
-API en Python para generar reportes semanales de cuentas y transacciones (por usuario) sobre tu base de datos de Supabase/PostgreSQL.
+Backend de Fintu con arquitectura por capas (presentation, application, domain, infrastructure, core).
 
-## 1) Requisitos
+## Arquitectura y patrones aplicados
 
-- Python 3.11+
-- Acceso a la base de datos de Supabase
+- App Factory: `src/bootstrap.py`
+- Dependency Injection (contenedor): `src/infrastructure/container.py`
+- Use Case por API: `src/application/use_cases/*`
+- Puertos y adaptadores: `src/domain/ports/*` + implementaciones en `src/infrastructure/*`
+- Catalogo de contratos de API: `GET /api/catalog`
 
-## 2) Configuracion
+## Como determinamos cada API
 
-Crea un archivo `.env` en la raiz del proyecto (puedes basarte en `.env.example`):
+Cada endpoint se registra como contrato (`ApiContract`) con:
+
+- `capability`: capacidad de negocio que resuelve
+- `owner_service`: servicio responsable
+- `lifecycle`: estado (`active`, `removed`)
+- `description`: comportamiento esperado
+
+## Variables de entorno
 
 ```env
+APP_NAME=fintu-backend-core
+APP_ENV=development
+API_VERSION=v1
+
 DATABASE_URL="postgresql://USER:PASSWORD@HOST:6543/postgres?pgbouncer=true"
 DIRECT_URL="postgresql://USER:PASSWORD@HOST:5432/postgres"
 DEFAULT_TIMEZONE="America/Bogota"
 
-SMTP_HOST="smtp.gmail.com"
-SMTP_PORT="587"
-SMTP_USER="tu-correo@gmail.com"
-SMTP_PASS="tu-password-o-app-password"
-MAIL_FROM="tu-correo@gmail.com"
-SMTP_TIMEOUT_SECONDS="10"
+GEMINI_API_KEY=""
+GEMINI_MODEL="gemini-3-flash"
+GEMINI_MODELS="gemini-3-flash,gemini-2.5-flash,gemini-2.5-flash-lite"
+GEMINI_MAX_OUTPUT_TOKENS=220
+
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=tu-correo@gmail.com
+SMTP_PASS="tu-app-password"
+MAIL_FROM=tu-correo@gmail.com
+SMTP_TIMEOUT_SECONDS=10
+
+REPORTS_SERVICE_URL=
 ```
 
 Notas:
-- La API prioriza `DATABASE_URL` y si no existe usa `DIRECT_URL`.
-- Se agrega `sslmode=require` automaticamente cuando no existe en la URL.
-- Si usas Gmail, normalmente necesitas App Password.
 
-## 3) Instalacion
+- Se usa `DATABASE_URL` o `DIRECT_URL` para leer datos del reporte.
+- Si `GEMINI_API_KEY` no existe, los consejos usan fallback local.
+- La analitica usa contexto vectorizado para bajar tokens enviados a Gemini.
+- Para envio de analitica por correo HTML se requiere SMTP configurado.
+
+## Instalacion
 
 ```bash
 python -m venv .venv
@@ -38,61 +61,70 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-## 4) Ejecutar
+## Ejecutar
 
 ```bash
 python app.py
 ```
 
-Servidor en `http://localhost:5000`.
+Servicio: `http://localhost:5000`
 
-## 4.1) Ejecutar con Docker
+Swagger UI: `http://localhost:5000/apidocs`
+
+Spec JSON: `http://localhost:5000/apispec.json`
+
+## Docker
 
 ```bash
 docker compose up -d --build
 docker compose ps
 ```
 
-La API quedara disponible en `http://localhost:5000`.
+## Endpoints
 
-## 5) Swagger
+- `GET /health`
+  - Estado del backend.
 
-- UI: `http://localhost:5000/apidocs`
-- JSON spec: `http://localhost:5000/apispec_1.json`
+- `GET /api/catalog`
+  - Catalogo de APIs y criterios de diseño.
 
-## 6) Endpoints
+- `GET /api/reports/weekly?user_id=<UUID>&week_start=YYYY-MM-DD&timezone=America/Bogota`
+  - Reporte semanal en JSON con consejo diario.
 
-### Salud
+- `GET /api/reports/weekly/pdf?user_id=<UUID>&week_start=YYYY-MM-DD&timezone=America/Bogota`
+  - Reporte semanal en PDF con graficas simples.
 
-`GET /health`
+- `GET /api/analytics/finance/forecast?user_id=<UUID>&mode=daily|weekly|custom&history_days=90&forecast_days=7&timezone=America/Bogota`
+  - Analitica predictiva con KPIs, proyeccion, `spending_focus` (categoria con mayor gasto y categorias a reducir) y `ai_advice`.
+  - `mode=daily`: usa el dia inmediatamente anterior.
+  - `mode=weekly`: usa los ultimos 7 dias cerrados.
+  - `mode=custom`: usa `history_days` como antes.
 
-### Reporte semanal JSON
-
-`GET /api/reports/weekly?user_id=<UUID>&week_start=YYYY-MM-DD&timezone=America/Bogota`
-
-### Enviar reporte semanal por correo (HTML)
-
-`POST /api/reports/weekly/email`
-
-Body ejemplo:
+- `POST /api/analytics/finance/forecast/email`
+  - Envia la analitica predictiva por correo en formato HTML (sin adjuntos).
+  - Body JSON:
 
 ```json
 {
-  "user_id": "c9d21d7e-869b-4f3c-92dc-92d8538ca54e",
-  "week_start": "2026-03-16",
-  "subject": "Reporte completo de mi semana"
+  "user_id": "11111111-1111-1111-1111-111111111111",
+  "to_email": "usuario@correo.com",
+  "mode": "weekly",
+  "history_days": 90,
+  "forecast_days": 7,
+  "timezone": "America/Bogota",
+  "subject": "Fintu | Reporte semanal generado 2026-03-29"
 }
 ```
 
-Notas del endpoint de correo:
-- Si no envias `to_email`, toma el correo del `user_id` desde `auth.users.email`.
-- El timezone del reporte se toma de `DEFAULT_TIMEZONE` en `.env`.
-- Si quieres, puedes enviar `to_email` para forzar un destinatario especifico.
+- `POST /api/reports/weekly/email`
+  - `410` (removido, lo gestiona servicio externo).
 
-## 7) Seguridad (importante)
+## Automatizacion n8n (recomendado)
 
-Las credenciales compartidas en texto plano deben considerarse comprometidas. Te recomiendo:
-- Rotar inmediatamente `SUPABASE_SERVICE_ROLE_KEY`.
-- Rotar usuario/password de `DATABASE_URL` y `DIRECT_URL`.
-- Rotar `SMTP_PASS`.
-- No commitear `.env` al repositorio.
+1. Flujo diario:
+- Cron diario.
+- HTTP Request `POST /api/analytics/finance/forecast/email` con `"mode":"daily"`.
+
+2. Flujo semanal:
+- Cron semanal.
+- HTTP Request `POST /api/analytics/finance/forecast/email` con `"mode":"weekly"`.

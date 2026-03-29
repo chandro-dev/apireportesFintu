@@ -3,14 +3,14 @@ name: RPi Deploy
 on:
   push:
     branches:
-      - master
+      - main
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on:
       - self-hosted
-      - Linux
+      - linux
     environment: production
     steps:
       - name: Checkout
@@ -29,31 +29,21 @@ jobs:
           sed -i 's/\r$//' .env
           chmod 600 .env
 
-      - name: Debug secret load (safe)
+      - name: Validate required keys for reports backend
         shell: bash
         run: |
-          echo "Environment: production"
-          echo ".env lines: $(wc -l < .env)"
-          echo ".env bytes: $(wc -c < .env)"
-          echo ".env keys:"
-      - name: Validate required keys for this app
-        shell: bash
-        run: |
-          required_keys=(
-            DATABASE_URL
-            DIRECT_URL
-            DEFAULT_TIMEZONE
-            SMTP_HOST
-            SMTP_PORT
-            SMTP_USER
-            SMTP_PASS
-          )
-          for key in "${required_keys[@]}"; do
-            if ! grep -qE "^${key}=" .env; then
-              echo "Missing required key in .env: ${key}"
-              exit 1
-            fi
-          done
+          if ! grep -qE '^DEFAULT_TIMEZONE=' .env; then
+            echo "Missing required key in .env: DEFAULT_TIMEZONE"
+            exit 1
+          fi
+          has_database_url=false
+          has_direct_url=false
+          grep -qE '^DATABASE_URL=' .env && has_database_url=true || true
+          grep -qE '^DIRECT_URL=' .env && has_direct_url=true || true
+          if [ "$has_database_url" = false ] && [ "$has_direct_url" = false ]; then
+            echo "Missing required DB url: set DATABASE_URL or DIRECT_URL"
+            exit 1
+          fi
           echo "Required keys found."
 
       - name: Deploy with Docker Compose
