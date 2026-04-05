@@ -23,7 +23,7 @@ def _build_swagger_template(settings) -> dict:
         "tags": [
             {"name": "Health", "description": "Estado de salud del servicio"},
             {"name": "Catalog", "description": "Catalogo de contratos de API"},
-            {"name": "Reports", "description": "Reporte semanal (JSON y PDF)"},
+            {"name": "Reports", "description": "Reportes diarios y semanales (JSON, HTML y PDF)"},
             {"name": "Analytics", "description": "Analitica y proyecciones financieras"},
         ],
     }
@@ -80,6 +80,8 @@ def create_app() -> Flask:
     )
     app.register_blueprint(
         create_reports_blueprint(
+            container.daily_report_use_case,
+            container.daily_report_html_renderer,
             container.weekly_report_use_case,
             container.weekly_report_pdf_use_case,
             container.report_email_policy_use_case,

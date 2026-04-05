@@ -1,11 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
 
 from src.domain.analytics_entities import AccountTypeMetric, TransactionTypeMetric
 from src.domain.ports.report_repository import ReportRepository
-from src.domain.report_entities import CategoryPoint, DailyPoint
+from src.domain.report_entities import AccountMovementPoint, CategoryPoint, DailyPoint
 from src.infrastructure.postgres.connection_factory import PostgresConnectionFactory
 
 
@@ -35,10 +35,11 @@ class SupabaseReportRepository(ReportRepository):
         week_start: datetime,
         week_end_exclusive: datetime,
     ) -> list[CategoryPoint]:
-        return self.fetch_expense_category_breakdown(
+        return self.fetch_category_breakdown(
             user_id=user_id,
             start_inclusive=week_start,
             end_exclusive=week_end_exclusive,
+            flow="EXPENSE",
             limit=8,
         )
 
@@ -59,7 +60,11 @@ class SupabaseReportRepository(ReportRepository):
                 COUNT(*) AS transactions_count
             FROM transactions t
             INNER JOIN accounts a ON a.id = t."accountId"
+            INNER JOIN transaction_types tt ON tt.id = t."typeId"
             WHERE a."userId" = %(user_id)s
+              AND COALESCE(a.include_in_reports, TRUE) = TRUE
+              AND COALESCE(a."isActive", TRUE) = TRUE
+              AND tt.code = 'NORMAL'
               AND t."occurredAt" >= %(start)s
               AND t."occurredAt" < %(end)s
             GROUP BY day
@@ -109,7 +114,11 @@ class SupabaseReportRepository(ReportRepository):
                 LEFT JOIN transactions t ON t."accountId" = a.id
                     AND t."occurredAt" >= %(start)s
                     AND t."occurredAt" < %(end)s
+                LEFT JOIN transaction_types tt ON tt.id = t."typeId"
                 WHERE a."userId" = %(user_id)s
+                  AND COALESCE(a.include_in_reports, TRUE) = TRUE
+                  AND COALESCE(a."isActive", TRUE) = TRUE
+                  AND (tt.code = 'NORMAL' OR tt.code IS NULL)
                 GROUP BY a."typeId"
             ),
             bal AS (
@@ -119,6 +128,7 @@ class SupabaseReportRepository(ReportRepository):
                     COUNT(*) FILTER (WHERE a."isActive" = TRUE) AS active_accounts
                 FROM accounts a
                 WHERE a."userId" = %(user_id)s
+                  AND COALESCE(a.include_in_reports, TRUE) = TRUE
                 GROUP BY a."typeId"
             )
             SELECT
@@ -180,6 +190,9 @@ class SupabaseReportRepository(ReportRepository):
             INNER JOIN transaction_types tt ON tt.id = t."typeId"
             INNER JOIN accounts a ON a.id = t."accountId"
             WHERE a."userId" = %(user_id)s
+              AND COALESCE(a.include_in_reports, TRUE) = TRUE
+              AND COALESCE(a."isActive", TRUE) = TRUE
+              AND tt.code = 'NORMAL'
               AND t."occurredAt" >= %(start)s
               AND t."occurredAt" < %(end)s
             GROUP BY tt.id, tt.code, tt.name
@@ -218,33 +231,114 @@ class SupabaseReportRepository(ReportRepository):
         end_exclusive: datetime,
         limit: int,
     ) -> list[CategoryPoint]:
+        return self.fetch_category_breakdown(
+            user_id=user_id,
+            start_inclusive=start_inclusive,
+            end_exclusive=end_exclusive,
+            flow="EXPENSE",
+            limit=limit,
+        )
+
+    def fetch_category_breakdown(
+        self,
+        *,
+        user_id: str,
+        start_inclusive: datetime,
+        end_exclusive: datetime,
+        flow: str,
+        limit: int,
+    ) -> list[CategoryPoint]:
+        safe_flow = flow.upper().strip()
+        if safe_flow not in {"INCOME", "EXPENSE"}:
+            raise ValueError("flow debe ser INCOME o EXPENSE")
+
         query = """
-            WITH expense_tx AS (
+            WITH filtered_tx AS (
                 SELECT
                     t.id,
                     t.amount
                 FROM transactions t
                 INNER JOIN accounts a ON a.id = t."accountId"
+                INNER JOIN transaction_types tt ON tt.id = t."typeId"
                 WHERE a."userId" = %(user_id)s
+                  AND COALESCE(a.include_in_reports, TRUE) = TRUE
+                  AND COALESCE(a."isActive", TRUE) = TRUE
+                  AND tt.code = 'NORMAL'
+                  AND t.flow = %(flow)s
                   AND t."occurredAt" >= %(start)s
                   AND t."occurredAt" < %(end)s
-                  AND t.flow = 'EXPENSE'
             )
             SELECT
                 COALESCE(cat.category_name, 'Sin categoria') AS category_name,
-                COALESCE(SUM(et.amount), 0) AS total_amount,
+                COALESCE(SUM(ft.amount), 0) AS total_amount,
                 COUNT(*) AS transactions_count
-            FROM expense_tx et
+            FROM filtered_tx ft
             LEFT JOIN LATERAL (
                 SELECT c.name AS category_name
                 FROM transaction_categories tc
                 INNER JOIN categories c ON c.id = tc."categoryId"
-                WHERE tc."transactionId" = et.id
+                WHERE tc."transactionId" = ft.id
                 ORDER BY c.name ASC
                 LIMIT 1
             ) cat ON TRUE
             GROUP BY COALESCE(cat.category_name, 'Sin categoria')
             ORDER BY total_amount DESC
+            LIMIT %(limit)s;
+        """
+
+        with self._connection_factory.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    query,
+                    {
+                        "user_id": user_id,
+                        "flow": safe_flow,
+                        "start": start_inclusive,
+                        "end": end_exclusive,
+                        "limit": limit,
+                    },
+                )
+                rows = cur.fetchall()
+
+        return [
+            CategoryPoint(
+                category_name=row["category_name"],
+                amount=self._num(row["total_amount"]),
+                transactions_count=int(row["transactions_count"]),
+            )
+            for row in rows
+        ]
+
+    def fetch_account_movement(
+        self,
+        *,
+        user_id: str,
+        start_inclusive: datetime,
+        end_exclusive: datetime,
+        limit: int,
+    ) -> list[AccountMovementPoint]:
+        query = """
+            SELECT
+                a.id AS account_id,
+                a.name AS account_name,
+                at.name AS account_type,
+                COALESCE(SUM(CASE WHEN t.flow = 'INCOME' THEN t.amount ELSE 0 END), 0) AS income,
+                COALESCE(SUM(CASE WHEN t.flow = 'EXPENSE' THEN t.amount ELSE 0 END), 0) AS expense,
+                COALESCE(SUM(CASE WHEN t.flow = 'INCOME' THEN t.amount ELSE -t.amount END), 0) AS net,
+                COALESCE(SUM(t.amount), 0) AS total_movement,
+                COUNT(*) AS transactions_count
+            FROM transactions t
+            INNER JOIN accounts a ON a.id = t."accountId"
+            INNER JOIN account_types at ON at.id = a."typeId"
+            INNER JOIN transaction_types tt ON tt.id = t."typeId"
+            WHERE a."userId" = %(user_id)s
+              AND COALESCE(a.include_in_reports, TRUE) = TRUE
+              AND COALESCE(a."isActive", TRUE) = TRUE
+              AND tt.code = 'NORMAL'
+              AND t."occurredAt" >= %(start)s
+              AND t."occurredAt" < %(end)s
+            GROUP BY a.id, a.name, at.name
+            ORDER BY total_movement DESC, transactions_count DESC
             LIMIT %(limit)s;
         """
 
@@ -262,9 +356,14 @@ class SupabaseReportRepository(ReportRepository):
                 rows = cur.fetchall()
 
         return [
-            CategoryPoint(
-                category_name=row["category_name"],
-                amount=self._num(row["total_amount"]),
+            AccountMovementPoint(
+                account_id=str(row["account_id"]),
+                account_name=row["account_name"],
+                account_type=row["account_type"],
+                income=self._num(row["income"]),
+                expense=self._num(row["expense"]),
+                net=self._num(row["net"]),
+                total_movement=self._num(row["total_movement"]),
                 transactions_count=int(row["transactions_count"]),
             )
             for row in rows
@@ -275,7 +374,8 @@ class SupabaseReportRepository(ReportRepository):
             SELECT COALESCE(SUM(a."currentAmount"), 0) AS total_balance
             FROM accounts a
             WHERE a."userId" = %(user_id)s
-              AND a."isActive" = TRUE;
+              AND COALESCE(a.include_in_reports, TRUE) = TRUE
+              AND COALESCE(a."isActive", TRUE) = TRUE;
         """
 
         with self._connection_factory.connect() as conn:
@@ -294,3 +394,4 @@ class SupabaseReportRepository(ReportRepository):
         if isinstance(value, Decimal):
             return round(float(value), 2)
         return round(float(value), 2)
+

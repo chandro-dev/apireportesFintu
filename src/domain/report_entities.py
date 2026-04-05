@@ -36,6 +36,30 @@ class CategoryPoint:
 
 
 @dataclass(frozen=True)
+class AccountMovementPoint:
+    account_id: str
+    account_name: str
+    account_type: str
+    income: float
+    expense: float
+    net: float
+    total_movement: float
+    transactions_count: int
+
+    def to_dict(self) -> dict:
+        return {
+            "account_id": self.account_id,
+            "account_name": self.account_name,
+            "account_type": self.account_type,
+            "income": self.income,
+            "expense": self.expense,
+            "net": self.net,
+            "total_movement": self.total_movement,
+            "transactions_count": self.transactions_count,
+        }
+
+
+@dataclass(frozen=True)
 class WeeklySummary:
     income: float
     expense: float
@@ -48,6 +72,66 @@ class WeeklySummary:
             "expense": self.expense,
             "net": self.net,
             "transactions_count": self.transactions_count,
+        }
+
+
+@dataclass(frozen=True)
+class DailySummary:
+    day: str
+    income: float
+    expense: float
+    net: float
+    transactions_count: int
+
+    def to_dict(self) -> dict:
+        return {
+            "day": self.day,
+            "income": self.income,
+            "expense": self.expense,
+            "net": self.net,
+            "transactions_count": self.transactions_count,
+        }
+
+
+@dataclass(frozen=True)
+class DailyComparison:
+    previous_day: str
+    income_delta: float
+    expense_delta: float
+    net_delta: float
+
+    def to_dict(self) -> dict:
+        return {
+            "previous_day": self.previous_day,
+            "income_delta": self.income_delta,
+            "expense_delta": self.expense_delta,
+            "net_delta": self.net_delta,
+        }
+
+
+@dataclass(frozen=True)
+class DailyReport:
+    user_id: str
+    timezone: str
+    generated_at_utc: str
+    summary: DailySummary
+    comparison: DailyComparison
+    top_expense_categories: list[CategoryPoint]
+    top_income_categories: list[CategoryPoint]
+    top_accounts_movement: list[AccountMovementPoint]
+    insights: list[str]
+
+    def to_dict(self) -> dict:
+        return {
+            "user_id": self.user_id,
+            "timezone": self.timezone,
+            "generated_at_utc": self.generated_at_utc,
+            "summary": self.summary.to_dict(),
+            "comparison_vs_previous_day": self.comparison.to_dict(),
+            "top_expense_categories": [row.to_dict() for row in self.top_expense_categories],
+            "top_income_categories": [row.to_dict() for row in self.top_income_categories],
+            "top_accounts_movement": [row.to_dict() for row in self.top_accounts_movement],
+            "insights": self.insights,
         }
 
 
@@ -75,4 +159,3 @@ class WeeklyReport:
             "expense_categories": [row.to_dict() for row in self.expense_categories],
             "daily_advice": self.advice,
         }
-

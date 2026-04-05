@@ -3,9 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from src.application.services.api_catalog_registry import ApiCatalogRegistry
+from src.application.services.daily_report_html_renderer import DailyReportHtmlRenderer
 from src.application.services.finance_forecast_email_renderer import FinanceForecastEmailRenderer
 from src.application.services.financial_forecast_model import FinancialForecastModel
 from src.application.use_cases.generate_weekly_report_pdf import GenerateWeeklyReportPdfUseCase
+from src.application.use_cases.get_daily_report import GetDailyReportUseCase
 from src.application.use_cases.get_finance_forecast import GetFinanceForecastUseCase
 from src.application.use_cases.get_health_status import GetHealthStatusUseCase
 from src.application.use_cases.get_report_policy import GetReportPolicyUseCase
@@ -26,6 +28,8 @@ from src.infrastructure.reporting.matplotlib_pdf_renderer import MatplotlibPdfRe
 class AppContainer:
     health_status_use_case: GetHealthStatusUseCase
     list_api_catalog_use_case: ListApiCatalogUseCase
+    daily_report_use_case: GetDailyReportUseCase
+    daily_report_html_renderer: DailyReportHtmlRenderer
     weekly_report_use_case: GetWeeklyReportUseCase
     weekly_report_pdf_use_case: GenerateWeeklyReportPdfUseCase
     report_email_policy_use_case: GetReportPolicyUseCase
@@ -54,6 +58,7 @@ class AppContainer:
         pdf_renderer = MatplotlibPdfRenderer()
         forecast_model = FinancialForecastModel()
         forecast_email_renderer = FinanceForecastEmailRenderer()
+        daily_report_html_renderer = DailyReportHtmlRenderer()
         email_sender = SmtpHtmlEmailSender(
             host=settings.smtp_host,
             port=settings.smtp_port,
@@ -62,6 +67,10 @@ class AppContainer:
             timeout_seconds=settings.smtp_timeout_seconds,
         )
 
+        daily_report_use_case = GetDailyReportUseCase(
+            settings=settings,
+            repository=report_repository,
+        )
         weekly_report_use_case = GetWeeklyReportUseCase(
             settings=settings,
             repository=report_repository,
@@ -101,6 +110,24 @@ class AppContainer:
                 capability="api_discovery",
                 owner_service="fintu-backend-core",
                 description="Entrega el catalogo y estado de APIs del backend.",
+            ),
+            ApiContract(
+                method="GET",
+                path="/api/reports/daily",
+                lifecycle="active",
+                capability="daily_reports",
+                owner_service="fintu-backend-core",
+                description=(
+                    "Reporte diario operativo en JSON (cuentas reportables, activas y transacciones NORMAL)."
+                ),
+            ),
+            ApiContract(
+                method="GET",
+                path="/api/reports/daily/html",
+                lifecycle="active",
+                capability="daily_reports_html",
+                owner_service="fintu-backend-core",
+                description="Dashboard HTML diario, visual y orientado a lectura rapida.",
             ),
             ApiContract(
                 method="GET",
@@ -150,6 +177,8 @@ class AppContainer:
         return AppContainer(
             health_status_use_case=GetHealthStatusUseCase(),
             list_api_catalog_use_case=ListApiCatalogUseCase(registry=registry),
+            daily_report_use_case=daily_report_use_case,
+            daily_report_html_renderer=daily_report_html_renderer,
             weekly_report_use_case=weekly_report_use_case,
             weekly_report_pdf_use_case=weekly_report_pdf_use_case,
             report_email_policy_use_case=report_email_policy_use_case,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
-from src.domain.report_entities import CategoryPoint, DailyPoint
+from src.domain.report_entities import AccountMovementPoint, CategoryPoint, DailyPoint
 
 
 class ReportRepository(Protocol):
@@ -26,3 +26,23 @@ class ReportRepository(Protocol):
     ) -> list[CategoryPoint]:
         ...
 
+    def fetch_category_breakdown(
+        self,
+        *,
+        user_id: str,
+        start_inclusive: datetime,
+        end_exclusive: datetime,
+        flow: str,
+        limit: int,
+    ) -> list[CategoryPoint]:
+        ...
+
+    def fetch_account_movement(
+        self,
+        *,
+        user_id: str,
+        start_inclusive: datetime,
+        end_exclusive: datetime,
+        limit: int,
+    ) -> list[AccountMovementPoint]:
+        ...

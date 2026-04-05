@@ -2,19 +2,139 @@ from __future__ import annotations
 
 from io import BytesIO
 
-from flask import Blueprint, current_app, jsonify, request, send_file
+from flask import Blueprint, Response, current_app, jsonify, request, send_file
 
+from src.application.services.daily_report_html_renderer import DailyReportHtmlRenderer
 from src.application.use_cases.generate_weekly_report_pdf import GenerateWeeklyReportPdfUseCase
+from src.application.use_cases.get_daily_report import GetDailyReportUseCase
 from src.application.use_cases.get_report_policy import GetReportPolicyUseCase
 from src.application.use_cases.get_weekly_report import GetWeeklyReportUseCase
 
 
 def create_reports_blueprint(
+    daily_report_use_case: GetDailyReportUseCase,
+    daily_report_html_renderer: DailyReportHtmlRenderer,
     weekly_report_use_case: GetWeeklyReportUseCase,
     weekly_report_pdf_use_case: GenerateWeeklyReportPdfUseCase,
     report_email_policy_use_case: GetReportPolicyUseCase,
 ) -> Blueprint:
     blueprint = Blueprint("reports", __name__)
+
+    @blueprint.get("/api/reports/daily")
+    def daily_report() -> tuple:
+        """Genera el reporte diario operativo en JSON.
+        ---
+        tags:
+          - Reports
+        parameters:
+          - in: query
+            name: user_id
+            type: string
+            required: true
+            description: UUID del usuario.
+            example: 11111111-1111-1111-1111-111111111111
+          - in: query
+            name: report_day
+            type: string
+            required: false
+            description: Fecha de reporte (YYYY-MM-DD). Si no se envia, usa el dia anterior.
+            example: "2026-04-04"
+          - in: query
+            name: timezone
+            type: string
+            required: false
+            description: Zona horaria IANA (ej. America/Bogota).
+            example: America/Bogota
+        responses:
+          200:
+            description: Reporte diario generado correctamente.
+          400:
+            description: Parametros invalidos.
+            schema:
+              type: object
+              properties:
+                error:
+                  type: string
+          500:
+            description: Error interno.
+            schema:
+              type: object
+              properties:
+                error:
+                  type: string
+        """
+        user_id = request.args.get("user_id")
+        if not user_id:
+            return jsonify({"error": "query param 'user_id' es obligatorio"}), 400
+
+        report_day = request.args.get("report_day")
+        timezone_name = request.args.get("timezone")
+
+        try:
+            report = daily_report_use_case.execute(
+                user_id=user_id,
+                report_day_str=report_day,
+                timezone_name=timezone_name,
+            )
+            return jsonify(report.to_dict()), 200
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception:
+            current_app.logger.exception("Error generando reporte diario")
+            return jsonify({"error": "Error interno generando el reporte diario"}), 500
+
+    @blueprint.get("/api/reports/daily/html")
+    def daily_report_html() -> tuple:
+        """Genera el reporte diario operativo en HTML visual.
+        ---
+        tags:
+          - Reports
+        produces:
+          - text/html
+        parameters:
+          - in: query
+            name: user_id
+            type: string
+            required: true
+            description: UUID del usuario.
+          - in: query
+            name: report_day
+            type: string
+            required: false
+            description: Fecha de reporte (YYYY-MM-DD). Si no se envia, usa el dia anterior.
+          - in: query
+            name: timezone
+            type: string
+            required: false
+            description: Zona horaria IANA.
+        responses:
+          200:
+            description: HTML del reporte diario.
+          400:
+            description: Parametros invalidos.
+          500:
+            description: Error interno.
+        """
+        user_id = request.args.get("user_id")
+        if not user_id:
+            return jsonify({"error": "query param 'user_id' es obligatorio"}), 400
+
+        report_day = request.args.get("report_day")
+        timezone_name = request.args.get("timezone")
+
+        try:
+            report = daily_report_use_case.execute(
+                user_id=user_id,
+                report_day_str=report_day,
+                timezone_name=timezone_name,
+            )
+            html = daily_report_html_renderer.render(report=report)
+            return Response(html, mimetype="text/html"), 200
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception:
+            current_app.logger.exception("Error generando reporte diario HTML")
+            return jsonify({"error": "Error interno generando el reporte diario html"}), 500
 
     @blueprint.get("/api/reports/weekly")
     def weekly_report() -> tuple:
@@ -44,69 +164,6 @@ def create_reports_blueprint(
         responses:
           200:
             description: Reporte semanal generado correctamente.
-            schema:
-              type: object
-              properties:
-                user_id:
-                  type: string
-                week:
-                  type: object
-                  properties:
-                    start_date:
-                      type: string
-                      example: "2026-03-23"
-                    end_date:
-                      type: string
-                      example: "2026-03-29"
-                    timezone:
-                      type: string
-                      example: America/Bogota
-                summary:
-                  type: object
-                  properties:
-                    income:
-                      type: number
-                      format: float
-                    expense:
-                      type: number
-                      format: float
-                    net:
-                      type: number
-                      format: float
-                    transactions_count:
-                      type: integer
-                daily_overview:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      date:
-                        type: string
-                      income:
-                        type: number
-                        format: float
-                      expense:
-                        type: number
-                        format: float
-                      net:
-                        type: number
-                        format: float
-                      transactions_count:
-                        type: integer
-                expense_categories:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      category_name:
-                        type: string
-                      amount:
-                        type: number
-                        format: float
-                      transactions_count:
-                        type: integer
-                daily_advice:
-                  type: string
           400:
             description: Parametros invalidos.
             schema:

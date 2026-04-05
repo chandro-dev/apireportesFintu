@@ -1,4 +1,4 @@
-# Fintu Backend Core
+﻿# Fintu Backend Core
 
 Backend de Fintu con arquitectura por capas (presentation, application, domain, infrastructure, core).
 
@@ -48,6 +48,10 @@ REPORTS_SERVICE_URL=
 Notas:
 
 - Se usa `DATABASE_URL` o `DIRECT_URL` para leer datos del reporte.
+- Los reportes operativos diarios/semanales aplican filtros de negocio:
+  - `accounts.include_in_reports = true`
+  - `accounts.is_active = true`
+  - `transaction_types.code = 'NORMAL'`
 - Si `GEMINI_API_KEY` no existe, los consejos usan fallback local.
 - La analitica usa contexto vectorizado para bajar tokens enviados a Gemini.
 - Para envio de analitica por correo HTML se requiere SMTP configurado.
@@ -86,7 +90,14 @@ docker compose ps
   - Estado del backend.
 
 - `GET /api/catalog`
-  - Catalogo de APIs y criterios de dise�o.
+  - Catalogo de APIs y criterios de diseño.
+
+- `GET /api/reports/daily?user_id=<UUID>&report_day=YYYY-MM-DD&timezone=America/Bogota`
+  - Reporte diario operativo en JSON.
+  - Si `report_day` no se envia, usa el dia anterior en la zona horaria indicada.
+
+- `GET /api/reports/daily/html?user_id=<UUID>&report_day=YYYY-MM-DD&timezone=America/Bogota`
+  - Dashboard diario en HTML visual.
 
 - `GET /api/reports/weekly?user_id=<UUID>&week_start=YYYY-MM-DD&timezone=America/Bogota`
   - Reporte semanal en JSON con consejo diario.
@@ -128,3 +139,6 @@ docker compose ps
 2. Flujo semanal:
 - Cron semanal.
 - HTTP Request `POST /api/analytics/finance/forecast/email` con `"mode":"weekly"`.
+
+3. Visual diario:
+- HTTP Request `GET /api/reports/daily/html?user_id=<UUID>` y usarlo como vista/preview del dia.
