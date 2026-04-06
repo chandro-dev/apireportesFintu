@@ -26,6 +26,7 @@ class GetDailyReportUseCase:
     ) -> DailyReport:
         tz_name = timezone_name or self._settings.default_timezone
         tz = self._parse_timezone(tz_name)
+        now_local = datetime.now(tz=tz)
 
         report_day = self._resolve_report_day(report_day_str=report_day_str, tz=tz)
         start_dt = datetime.combine(report_day, time.min, tzinfo=tz)
@@ -77,12 +78,36 @@ class GetDailyReportUseCase:
             end_exclusive=end_exclusive_dt,
             limit=5,
         )
+        normal_accounts = self._repository.fetch_normal_accounts_balances(user_id=user_id)
+        normal_accounts_total_balance = round(
+            sum(account.current_amount for account in normal_accounts), 2
+        )
+        credit_cards_total_debt = self._repository.fetch_credit_cards_total_debt(user_id=user_id)
+        recent_outgoing_normal_transactions = self._repository.fetch_recent_outgoing_normal_transactions(
+            user_id=user_id,
+            end_exclusive=now_local,
+            timezone_name=tz_name,
+            limit=10,
+        )
+
+        weekly_start_date = now_local.date() - timedelta(days=6)
+        weekly_start_dt = datetime.combine(weekly_start_date, time.min, tzinfo=tz)
+        weekly_end_exclusive_dt = datetime.combine(now_local.date() + timedelta(days=1), time.min, tzinfo=tz)
+        weekly_expense_categories = self._repository.fetch_category_breakdown(
+            user_id=user_id,
+            start_inclusive=weekly_start_dt,
+            end_exclusive=weekly_end_exclusive_dt,
+            flow="EXPENSE",
+            limit=7,
+        )
 
         insights = self._build_insights(
             summary=summary,
             comparison=comparison,
             top_expense_categories=top_expense_categories,
             top_accounts_movement=top_accounts_movement,
+            credit_cards_total_debt=credit_cards_total_debt,
+            weekly_expense_categories=weekly_expense_categories,
         )
 
         return DailyReport(
@@ -91,6 +116,13 @@ class GetDailyReportUseCase:
             generated_at_utc=datetime.now(timezone.utc).isoformat(),
             summary=summary,
             comparison=comparison,
+            normal_accounts_total_balance=normal_accounts_total_balance,
+            normal_accounts=normal_accounts,
+            credit_cards_total_debt=credit_cards_total_debt,
+            recent_outgoing_normal_transactions=recent_outgoing_normal_transactions,
+            weekly_expense_window_start=weekly_start_date.isoformat(),
+            weekly_expense_window_end=now_local.date().isoformat(),
+            weekly_expense_categories=weekly_expense_categories,
             top_expense_categories=top_expense_categories,
             top_income_categories=top_income_categories,
             top_accounts_movement=top_accounts_movement,
@@ -156,6 +188,8 @@ class GetDailyReportUseCase:
         comparison: DailyComparison,
         top_expense_categories,
         top_accounts_movement,
+        credit_cards_total_debt: float,
+        weekly_expense_categories,
     ) -> list[str]:
         insights: list[str] = []
 
@@ -181,6 +215,17 @@ class GetDailyReportUseCase:
                 f"La cuenta con mas movimiento fue '{account.account_name}' (${account.total_movement:,.2f}, {account.transactions_count} tx)."
             )
 
+        if weekly_expense_categories:
+            weekly_top = weekly_expense_categories[0]
+            insights.append(
+                f"En la ultima semana la categoria de mayor gasto fue '{weekly_top.category_name}' (${weekly_top.amount:,.2f})."
+            )
+
+        if credit_cards_total_debt > 0:
+            insights.append(
+                f"Tu deuda total estimada en tarjetas es ${credit_cards_total_debt:,.2f}. Prioriza pagos de alto interes."
+            )
+
         if comparison.expense_delta > 0:
             insights.append(
                 f"El gasto subio ${comparison.expense_delta:,.2f} vs {comparison.previous_day}. Revisa el origen de ese aumento."
@@ -190,4 +235,4 @@ class GetDailyReportUseCase:
                 f"El gasto bajo ${abs(comparison.expense_delta):,.2f} vs {comparison.previous_day}. Buen ajuste diario."
             )
 
-        return insights[:4]
+        return insights[:6]

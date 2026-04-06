@@ -90,6 +90,8 @@ class AppContainer:
         send_finance_forecast_email_use_case = SendFinanceForecastEmailUseCase(
             settings=settings,
             get_finance_forecast_use_case=finance_forecast_use_case,
+            get_daily_report_use_case=daily_report_use_case,
+            daily_renderer=daily_report_html_renderer,
             renderer=forecast_email_renderer,
             email_sender=email_sender,
         )

@@ -3,7 +3,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol
 
-from src.domain.report_entities import AccountMovementPoint, CategoryPoint, DailyPoint
+from src.domain.report_entities import (
+    AccountBalancePoint,
+    AccountMovementPoint,
+    CategoryPoint,
+    DailyPoint,
+    OutgoingTransactionPoint,
+)
 
 
 class ReportRepository(Protocol):
@@ -45,4 +51,20 @@ class ReportRepository(Protocol):
         end_exclusive: datetime,
         limit: int,
     ) -> list[AccountMovementPoint]:
+        ...
+
+    def fetch_normal_accounts_balances(self, *, user_id: str) -> list[AccountBalancePoint]:
+        ...
+
+    def fetch_credit_cards_total_debt(self, *, user_id: str) -> float:
+        ...
+
+    def fetch_recent_outgoing_normal_transactions(
+        self,
+        *,
+        user_id: str,
+        end_exclusive: datetime,
+        timezone_name: str,
+        limit: int,
+    ) -> list[OutgoingTransactionPoint]:
         ...

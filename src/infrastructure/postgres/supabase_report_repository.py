@@ -5,7 +5,13 @@ from decimal import Decimal
 
 from src.domain.analytics_entities import AccountTypeMetric, TransactionTypeMetric
 from src.domain.ports.report_repository import ReportRepository
-from src.domain.report_entities import AccountMovementPoint, CategoryPoint, DailyPoint
+from src.domain.report_entities import (
+    AccountBalancePoint,
+    AccountMovementPoint,
+    CategoryPoint,
+    DailyPoint,
+    OutgoingTransactionPoint,
+)
 from src.infrastructure.postgres.connection_factory import PostgresConnectionFactory
 
 
@@ -365,6 +371,167 @@ class SupabaseReportRepository(ReportRepository):
                 net=self._num(row["net"]),
                 total_movement=self._num(row["total_movement"]),
                 transactions_count=int(row["transactions_count"]),
+            )
+            for row in rows
+        ]
+
+    def fetch_normal_accounts_balances(self, *, user_id: str) -> list[AccountBalancePoint]:
+        query = """
+            SELECT
+                a.id AS account_id,
+                a.name AS account_name,
+                a."bankName" AS bank_name,
+                COALESCE(a."currentAmount", 0) AS current_amount
+            FROM accounts a
+            INNER JOIN account_types at ON at.id = a."typeId"
+            WHERE a."userId" = %(user_id)s
+              AND COALESCE(a.include_in_reports, TRUE) = TRUE
+              AND COALESCE(a."isActive", TRUE) = TRUE
+              AND LOWER(TRIM(at.name)) = 'cuenta normal'
+            ORDER BY current_amount DESC, account_name ASC;
+        """
+
+        with self._connection_factory.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, {"user_id": user_id})
+                rows = cur.fetchall()
+
+        return [
+            AccountBalancePoint(
+                account_id=str(row["account_id"]),
+                account_name=row["account_name"],
+                bank_name=row["bank_name"],
+                current_amount=self._num(row["current_amount"]),
+            )
+            for row in rows
+        ]
+
+    def fetch_credit_cards_total_debt(self, *, user_id: str) -> float:
+        query = """
+            WITH card_accounts AS (
+                SELECT
+                    a.id,
+                    COALESCE(a."currentAmount", 0) AS current_amount,
+                    COALESCE(cc."creditLimit", 0) AS credit_limit
+                FROM accounts a
+                INNER JOIN account_types at ON at.id = a."typeId"
+                LEFT JOIN credit_cards cc ON cc."accountId" = a.id
+                WHERE a."userId" = %(user_id)s
+                  AND COALESCE(a.include_in_reports, TRUE) = TRUE
+                  AND COALESCE(a."isActive", TRUE) = TRUE
+                  AND LOWER(at.name) LIKE '%%tarjeta%%'
+                  AND (
+                    LOWER(at.name) LIKE '%%credito%%'
+                  )
+            ),
+            account_debt AS (
+                SELECT
+                    COALESCE(
+                        SUM(
+                            CASE
+                                WHEN credit_limit > 0 THEN GREATEST(credit_limit - current_amount, 0)
+                                WHEN current_amount < 0 THEN -current_amount
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS debt_amount
+                FROM card_accounts
+            ),
+            installment_debt AS (
+                SELECT COALESCE(SUM(i."remainingPrincipal"), 0) AS debt_amount
+                FROM credit_card_installments i
+                INNER JOIN credit_cards cc ON cc.id = i."creditCardId"
+                INNER JOIN accounts a ON a.id = cc."accountId"
+                INNER JOIN account_types at ON at.id = a."typeId"
+                WHERE a."userId" = %(user_id)s
+                  AND COALESCE(a.include_in_reports, TRUE) = TRUE
+                  AND COALESCE(a."isActive", TRUE) = TRUE
+                  AND LOWER(at.name) LIKE '%%tarjeta%%'
+                  AND (
+                    LOWER(at.name) LIKE '%%credito%%'
+                  )
+                  AND i.status = 'ACTIVE'
+            )
+            SELECT
+                (SELECT debt_amount FROM account_debt) AS account_debt,
+                (SELECT debt_amount FROM installment_debt) AS installment_debt;
+        """
+
+        with self._connection_factory.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, {"user_id": user_id})
+                row = cur.fetchone()
+
+        if row is None:
+            return 0.0
+
+        account_debt = self._num(row["account_debt"])
+        installment_debt = self._num(row["installment_debt"])
+
+        # Avoids potential double counting between card balance and installment balance.
+        return round(max(account_debt, installment_debt), 2)
+
+    def fetch_recent_outgoing_normal_transactions(
+        self,
+        *,
+        user_id: str,
+        end_exclusive: datetime,
+        timezone_name: str,
+        limit: int,
+    ) -> list[OutgoingTransactionPoint]:
+        query = """
+            SELECT
+                t.id AS transaction_id,
+                (t."occurredAt" AT TIME ZONE %(timezone)s)::date AS occurred_day,
+                a.name AS account_name,
+                COALESCE(NULLIF(t.title, ''), 'Sin titulo') AS title,
+                COALESCE(t.amount, 0) AS amount,
+                COALESCE(cat.category_name, 'Sin categoria') AS category_name
+            FROM transactions t
+            INNER JOIN accounts a ON a.id = t."accountId"
+            INNER JOIN account_types at ON at.id = a."typeId"
+            INNER JOIN transaction_types tt ON tt.id = t."typeId"
+            LEFT JOIN LATERAL (
+                SELECT c.name AS category_name
+                FROM transaction_categories tc
+                INNER JOIN categories c ON c.id = tc."categoryId"
+                WHERE tc."transactionId" = t.id
+                ORDER BY c.name ASC
+                LIMIT 1
+            ) cat ON TRUE
+            WHERE a."userId" = %(user_id)s
+              AND COALESCE(a.include_in_reports, TRUE) = TRUE
+              AND COALESCE(a."isActive", TRUE) = TRUE
+              AND LOWER(TRIM(at.name)) = 'cuenta normal'
+              AND tt.code = 'NORMAL'
+              AND t.flow = 'EXPENSE'
+              AND t."occurredAt" < %(end)s
+            ORDER BY t."occurredAt" DESC
+            LIMIT %(limit)s;
+        """
+
+        with self._connection_factory.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    query,
+                    {
+                        "user_id": user_id,
+                        "end": end_exclusive,
+                        "timezone": timezone_name,
+                        "limit": limit,
+                    },
+                )
+                rows = cur.fetchall()
+
+        return [
+            OutgoingTransactionPoint(
+                transaction_id=str(row["transaction_id"]),
+                occurred_at=row["occurred_day"].isoformat(),
+                account_name=row["account_name"],
+                title=row["title"],
+                amount=self._num(row["amount"]),
+                category_name=row["category_name"],
             )
             for row in rows
         ]

@@ -106,7 +106,7 @@ def create_analytics_blueprint(
 
     @blueprint.post("/api/analytics/finance/forecast/email")
     def finance_forecast_email() -> tuple:
-        """Envia la analitica predictiva por correo en HTML (sin adjuntos).
+        """Envia analitica por correo en HTML (sin adjuntos).
         ---
         tags:
           - Analytics
@@ -131,7 +131,10 @@ def create_analytics_blueprint(
                 mode:
                   type: string
                   enum: [daily, weekly, custom]
-                  example: weekly
+                  description: |
+                    daily: envia snapshot diario visual.
+                    weekly/custom: envia analitica predictiva.
+                  example: daily
                 history_days:
                   type: integer
                   example: 90

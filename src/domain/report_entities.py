@@ -60,6 +60,42 @@ class AccountMovementPoint:
 
 
 @dataclass(frozen=True)
+class AccountBalancePoint:
+    account_id: str
+    account_name: str
+    bank_name: str | None
+    current_amount: float
+
+    def to_dict(self) -> dict:
+        return {
+            "account_id": self.account_id,
+            "account_name": self.account_name,
+            "bank_name": self.bank_name,
+            "current_amount": self.current_amount,
+        }
+
+
+@dataclass(frozen=True)
+class OutgoingTransactionPoint:
+    transaction_id: str
+    occurred_at: str
+    account_name: str
+    title: str
+    amount: float
+    category_name: str
+
+    def to_dict(self) -> dict:
+        return {
+            "transaction_id": self.transaction_id,
+            "occurred_at": self.occurred_at,
+            "account_name": self.account_name,
+            "title": self.title,
+            "amount": self.amount,
+            "category_name": self.category_name,
+        }
+
+
+@dataclass(frozen=True)
 class WeeklySummary:
     income: float
     expense: float
@@ -116,6 +152,13 @@ class DailyReport:
     generated_at_utc: str
     summary: DailySummary
     comparison: DailyComparison
+    normal_accounts_total_balance: float
+    normal_accounts: list[AccountBalancePoint]
+    credit_cards_total_debt: float
+    recent_outgoing_normal_transactions: list[OutgoingTransactionPoint]
+    weekly_expense_window_start: str
+    weekly_expense_window_end: str
+    weekly_expense_categories: list[CategoryPoint]
     top_expense_categories: list[CategoryPoint]
     top_income_categories: list[CategoryPoint]
     top_accounts_movement: list[AccountMovementPoint]
@@ -128,6 +171,17 @@ class DailyReport:
             "generated_at_utc": self.generated_at_utc,
             "summary": self.summary.to_dict(),
             "comparison_vs_previous_day": self.comparison.to_dict(),
+            "normal_accounts_total_balance": self.normal_accounts_total_balance,
+            "normal_accounts": [row.to_dict() for row in self.normal_accounts],
+            "credit_cards_total_debt": self.credit_cards_total_debt,
+            "recent_outgoing_normal_transactions": [
+                row.to_dict() for row in self.recent_outgoing_normal_transactions
+            ],
+            "weekly_expense_window": {
+                "start_date": self.weekly_expense_window_start,
+                "end_date": self.weekly_expense_window_end,
+            },
+            "weekly_expense_categories": [row.to_dict() for row in self.weekly_expense_categories],
             "top_expense_categories": [row.to_dict() for row in self.top_expense_categories],
             "top_income_categories": [row.to_dict() for row in self.top_income_categories],
             "top_accounts_movement": [row.to_dict() for row in self.top_accounts_movement],

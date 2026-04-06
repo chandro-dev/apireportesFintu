@@ -95,9 +95,14 @@ docker compose ps
 - `GET /api/reports/daily?user_id=<UUID>&report_day=YYYY-MM-DD&timezone=America/Bogota`
   - Reporte diario operativo en JSON.
   - Si `report_day` no se envia, usa el dia anterior en la zona horaria indicada.
+  - Incluye:
+    - valor actual de cuentas normales
+    - deuda total estimada en tarjetas de credito (`credit_limit - cupo_disponible`)
+    - ultimas 10 salidas de cuentas normales
+    - categorias de gasto semanal para visualizacion tipo torta
 
 - `GET /api/reports/daily/html?user_id=<UUID>&report_day=YYYY-MM-DD&timezone=America/Bogota`
-  - Dashboard diario en HTML visual.
+  - Dashboard diario en HTML con enfoque ejecutivo y visual.
 
 - `GET /api/reports/weekly?user_id=<UUID>&week_start=YYYY-MM-DD&timezone=America/Bogota`
   - Reporte semanal en JSON con consejo diario.
@@ -112,7 +117,10 @@ docker compose ps
   - `mode=custom`: usa `history_days` como antes.
 
 - `POST /api/analytics/finance/forecast/email`
-  - Envia la analitica predictiva por correo en formato HTML (sin adjuntos).
+  - Envia reporte por correo en formato HTML (sin adjuntos).
+  - Comportamiento por `mode`:
+    - `daily`: envia el snapshot diario visual (cuentas normales, deuda tarjetas, ultimas 10 salidas y torta semanal embebida como imagen inline).
+    - `weekly` y `custom`: envia analitica predictiva.
   - Body JSON:
 
 ```json

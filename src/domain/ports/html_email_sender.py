@@ -11,5 +11,6 @@ class HtmlEmailSender(Protocol):
         subject: str,
         html_body: str,
         from_email: str,
+        inline_images: dict[str, bytes] | None = None,
     ) -> None:
         ...
