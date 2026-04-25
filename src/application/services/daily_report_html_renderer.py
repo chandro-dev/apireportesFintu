@@ -28,6 +28,37 @@ class DailyReportHtmlRenderer:
             total=max(0.01, weekly_expense_total),
             bar_color="#d946ef",
         )
+        daily_expense_total = max(0.01, summary.expense)
+        daily_income_total = max(0.01, summary.income)
+        daily_expense_rows = self._build_category_rows(
+            categories=report.top_expense_categories,
+            total=daily_expense_total,
+            bar_color="#ef4444",
+        )
+        daily_income_rows = self._build_category_rows(
+            categories=report.top_income_categories,
+            total=daily_income_total,
+            bar_color="#0f766e",
+        )
+        top_daily_expense = report.top_expense_categories[0] if report.top_expense_categories else None
+        expense_concentration = (
+            round((top_daily_expense.amount / summary.expense) * 100, 2)
+            if top_daily_expense and summary.expense > 0
+            else None
+        )
+        savings_rate = round((summary.net / summary.income) * 100, 2) if summary.income > 0 else None
+        expense_ratio = round((summary.expense / summary.income) * 100, 2) if summary.income > 0 else None
+        health_label, health_class, health_message = self._build_daily_health(
+            net=summary.net,
+            savings_rate=savings_rate,
+            expense_ratio=expense_ratio,
+            credit_cards_total_debt=report.credit_cards_total_debt,
+        )
+        concentration_text = (
+            f"{expense_concentration}% en {escape(top_daily_expense.category_name)}"
+            if expense_concentration is not None and top_daily_expense
+            else "Sin gasto diario relevante"
+        )
 
         outgoing_total = round(
             sum(item.amount for item in report.recent_outgoing_normal_transactions),
@@ -110,10 +141,10 @@ class DailyReportHtmlRenderer:
     .hero {{
       background: #ffffff;
       border: 1px solid #d5deec;
-      border-radius: 14px;
+      border-radius: 12px;
       padding: 22px;
     }}
-    .hero h1 {{ margin: 0 0 8px 0; font-size: 30px; color: #0b2b4a; }}
+    .hero h1 {{ margin: 0 0 8px 0; font-size: 30px; color: #102a43; }}
     .hero p {{ margin: 4px 0; color: #334155; }}
     .pill {{
       display: inline-block;
@@ -134,10 +165,18 @@ class DailyReportHtmlRenderer:
 
     .positive {{ color: #0f766e !important; }}
     .negative {{ color: #b91c1c !important; }}
+    .warning {{ color: #b45309 !important; }}
 
     .two-col {{ display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }}
     .card {{ background: #ffffff; border: 1px solid #d5deec; border-radius: 12px; padding: 20px; }}
     .card h2 {{ margin: 0 0 10px 0; font-size: 19px; color: #102a43; }}
+    .decision-band {{ display: grid; grid-template-columns: 260px 1fr 220px; gap: 16px; align-items: center; }}
+    .health-score {{ background: #f8fbff; border: 1px solid #d6dfec; border-radius: 10px; padding: 14px; }}
+    .health-score .label {{ color: #475569; font-size: 12px; text-transform: uppercase; letter-spacing: .35px; }}
+    .health-score .value {{ font-size: 24px; margin-top: 4px; }}
+    .decision-copy {{ line-height: 1.5; color: #0f172a; }}
+    .ratio-list {{ display: grid; gap: 8px; color: #334155; font-size: 13px; }}
+    .ratio-list strong {{ color: #0f172a; }}
 
     .pie-layout {{ display: grid; grid-template-columns: 320px 1fr; gap: 22px; align-items: center; }}
     .pie-box {{ width: 320px; height: 320px; display: flex; align-items: center; justify-content: center; }}
@@ -183,6 +222,7 @@ class DailyReportHtmlRenderer:
       .movement-grid {{ grid-template-columns: 1fr; }}
       .pie-layout {{ grid-template-columns: 1fr; }}
       .pie-box {{ width: 100%; }}
+      .decision-band {{ grid-template-columns: 1fr; }}
     }}
   </style>
 </head>
@@ -223,6 +263,20 @@ class DailyReportHtmlRenderer:
       </article>
     </section>
 
+    <section class=\"card decision-band\">
+      <div class=\"health-score\">
+        <div class=\"label\">Salud financiera diaria</div>
+        <div class=\"value {health_class}\">{escape(health_label)}</div>
+        <div class=\"empty\">Basado en flujo neto, gasto/ingreso y deuda</div>
+      </div>
+      <div class=\"decision-copy\">{escape(health_message)}</div>
+      <div class=\"ratio-list\">
+        <div><strong>Ahorro del dia:</strong> {self._pct(savings_rate)}</div>
+        <div><strong>Gasto/ingreso:</strong> {self._pct(expense_ratio)}</div>
+        <div><strong>Concentracion:</strong> {concentration_text}</div>
+      </div>
+    </section>
+
     <section class=\"two-col\">
       <article class=\"card\">
         <h2>Gasto semanal por categoria</h2>
@@ -249,6 +303,17 @@ class DailyReportHtmlRenderer:
             <tbody>{outgoing_rows}</tbody>
           </table>
         </div>
+      </article>
+    </section>
+
+    <section class=\"two-col\">
+      <article class=\"card\">
+        <h2>Gastos del dia por categoria</h2>
+        <div class=\"rows\">{daily_expense_rows}</div>
+      </article>
+      <article class=\"card\">
+        <h2>Ingresos del dia por categoria</h2>
+        <div class=\"rows\">{daily_income_rows}</div>
       </article>
     </section>
 
@@ -279,7 +344,7 @@ class DailyReportHtmlRenderer:
         bar_color: str,
     ) -> str:
         if not categories:
-            return "<p class='empty'>No hay categorias de gasto para la semana seleccionada.</p>"
+            return "<p class='empty'>No hay categorias reportables para este periodo.</p>"
 
         rows = []
         for item in categories:
@@ -418,3 +483,44 @@ class DailyReportHtmlRenderer:
         if value >= 0:
             return f"+${value:,.2f}"
         return f"-${abs(value):,.2f}"
+
+    @staticmethod
+    def _pct(value: float | None) -> str:
+        if value is None:
+            return "-"
+        return f"{value:.2f}%"
+
+    @staticmethod
+    def _build_daily_health(
+        *,
+        net: float,
+        savings_rate: float | None,
+        expense_ratio: float | None,
+        credit_cards_total_debt: float,
+    ) -> tuple[str, str, str]:
+        if net < 0 or (expense_ratio is not None and expense_ratio > 100):
+            return (
+                "Atencion",
+                "negative",
+                "El dia cerro con presion de caja. Revisa gastos variables, evita nuevas compras no planeadas y prioriza pagos obligatorios antes de mover dinero a ahorro.",
+            )
+
+        if credit_cards_total_debt > 0 and (savings_rate is None or savings_rate < 10):
+            return (
+                "Vigilancia",
+                "warning",
+                "Hay deuda de tarjeta y el margen de ahorro del dia es bajo. Conviene dirigir excedentes a saldos de alto interes antes de aumentar consumo discrecional.",
+            )
+
+        if savings_rate is not None and savings_rate >= 20:
+            return (
+                "Solida",
+                "positive",
+                "El flujo diario permite sostener ahorro. Mantener registro oportuno y separar el excedente temprano reduce el riesgo de gastarlo durante la semana.",
+            )
+
+        return (
+            "Estable",
+            "positive",
+            "El dia esta controlado, pero el margen aun puede mejorar. Define un tope para gastos variables y compara cada compra contra ese limite antes de ejecutarla.",
+        )

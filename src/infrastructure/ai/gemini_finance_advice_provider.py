@@ -49,12 +49,13 @@ class GeminiFinanceAdviceProvider(FinanceAdviceProvider):
         return (
             "Eres asesor financiero de Fintu. "
             "Con base en este contexto vectorizado, responde en espanol con consejo claro, accionable y profesional. "
-            "Maximo 140 palabras. "
+            "Aplica buenas practicas financieras: flujo de caja, tasa de ahorro, ratio gasto/ingreso, concentracion de gasto, liquidez y deuda de alto costo cuando aplique. "
+            "Maximo 150 palabras. "
             "Formato obligatorio en 3 lineas numeradas: "
             "1) En que categoria gasto mas y cuanto represento. "
-            "2) Que categorias deberia reducir primero (maximo 3). "
-            "3) Plan concreto con una accion para hoy y una accion para la semana. "
-            "No inventes datos ni uses relleno. "
+            "2) Que riesgo financiero revela el periodo y que categorias deberia reducir primero (maximo 3). "
+            "3) Plan concreto con una accion inmediata y una accion para el siguiente horizonte proyectado. "
+            "No inventes datos, no prometas rendimientos y no uses relleno. "
             f"Objetivo del modo: {mode_goal}. "
             f"contexto_vectorizado={vector_json}"
         )

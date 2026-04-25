@@ -46,18 +46,32 @@ class GeminiAdviceProvider(AdviceProvider):
                 f"expense={latest_day.expense}, net={latest_day.net}, tx={latest_day.transactions_count}."
             )
 
-        top_category = (
-            report.expense_categories[0].category_name
-            if report.expense_categories
+        top_category = report.expense_categories[0] if report.expense_categories else None
+        top_category_text = (
+            f"{top_category.category_name} por {top_category.amount}"
+            if top_category
             else "No dominant category"
+        )
+        savings_rate = (
+            round((report.summary.net / report.summary.income) * 100, 2)
+            if report.summary.income > 0
+            else None
+        )
+        expense_ratio = (
+            round((report.summary.expense / report.summary.income) * 100, 2)
+            if report.summary.income > 0
+            else None
         )
 
         return (
             "Actua como asesor financiero personal de Fintu. "
-            "Entrega un consejo diario accionable, claro y breve (maximo 60 palabras) en espanol. "
-            "No uses listas ni saludos largos. "
+            "Entrega un consejo semanal accionable, claro y breve (maximo 90 palabras) en espanol. "
+            "Usa buenas practicas financieras: flujo de caja, tasa de ahorro, control de gasto variable, deuda cara y concentracion por categoria. "
+            "Formato obligatorio en 3 frases: diagnostico, riesgo principal y accion concreta para los proximos 7 dias. "
+            "No uses saludos, no inventes datos y no prometas rendimientos. "
             f"Resumen semanal: ingresos={report.summary.income}, gastos={report.summary.expense}, neto={report.summary.net}. "
-            f"Categoria de gasto principal: {top_category}. "
+            f"tasa_ahorro_pct={savings_rate}, ratio_gasto_ingreso_pct={expense_ratio}. "
+            f"Categoria de gasto principal: {top_category_text}. "
             f"{latest_text}"
         )
 
@@ -65,10 +79,8 @@ class GeminiAdviceProvider(AdviceProvider):
     def _fallback_advice(report: WeeklyReport) -> str:
         if report.summary.net < 0:
             return (
-                "Hoy enfocate en reducir un gasto variable pequeno y evita compras no planificadas; "
-                "tu semana va en negativo y ese ajuste diario ayuda a recuperar control."
+                "La semana cerro con flujo negativo. El riesgo principal es financiar consumo con deuda o reducir liquidez; durante los proximos 7 dias fija un tope diario de gasto variable y recorta primero la categoria con mayor participacion."
             )
         return (
-            "Hoy manten el ritmo: registra cada gasto en el momento y separa una parte de tu ingreso "
-            "como ahorro automatico para consolidar una semana positiva."
+            "La semana mantiene flujo positivo. El riesgo principal es que el excedente se diluya en gasto discrecional; durante los proximos 7 dias separa el ahorro al inicio y controla la categoria de mayor gasto con un limite semanal."
         )

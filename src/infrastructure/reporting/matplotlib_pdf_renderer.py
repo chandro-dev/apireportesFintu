@@ -25,7 +25,24 @@ class MatplotlibPdfRenderer(PdfRenderer):
 
     def _build_summary_page(self, report: WeeklyReport):
         fig = plt.figure(figsize=(8.27, 11.69))
-        fig.suptitle("Fintu - Reporte Semanal", fontsize=18, fontweight="bold")
+        fig.patch.set_facecolor("#eef2f8")
+        fig.suptitle("Fintu - Reporte Financiero Semanal", fontsize=18, fontweight="bold", color="#102a43")
+
+        savings_rate = (
+            round((report.summary.net / report.summary.income) * 100, 2)
+            if report.summary.income > 0
+            else None
+        )
+        expense_ratio = (
+            round((report.summary.expense / report.summary.income) * 100, 2)
+            if report.summary.income > 0
+            else None
+        )
+        health_label, health_message = self._build_weekly_health(
+            net=report.summary.net,
+            savings_rate=savings_rate,
+            expense_ratio=expense_ratio,
+        )
 
         ax_text = fig.add_axes([0.08, 0.67, 0.84, 0.24])
         ax_text.axis("off")
@@ -38,19 +55,25 @@ class MatplotlibPdfRenderer(PdfRenderer):
             f"Gastos: ${report.summary.expense:,.2f}",
             f"Neto: ${report.summary.net:,.2f}",
             f"Transacciones: {report.summary.transactions_count}",
+            f"Tasa de ahorro: {self._pct(savings_rate)}",
+            f"Ratio gasto/ingreso: {self._pct(expense_ratio)}",
+            "",
+            f"Salud del periodo: {health_label}",
+            health_message,
         ]
-        ax_text.text(0, 1, "\n".join(summary_lines), va="top", fontsize=11)
+        ax_text.text(0, 1, "\n".join(summary_lines), va="top", fontsize=11, color="#0f172a", wrap=True)
 
         ax_advice = fig.add_axes([0.08, 0.08, 0.84, 0.5])
         ax_advice.axis("off")
-        ax_advice.text(0, 1, "Consejo diario", fontsize=13, fontweight="bold", va="top")
-        ax_advice.text(0, 0.92, report.advice, fontsize=11, va="top", wrap=True)
+        ax_advice.text(0, 1, "Consejo semanal de IA", fontsize=13, fontweight="bold", va="top", color="#102a43")
+        ax_advice.text(0, 0.92, report.advice, fontsize=11, va="top", wrap=True, color="#0f172a")
 
         return fig
 
     def _build_charts_page(self, report: WeeklyReport):
         fig, (ax_bar, ax_pie) = plt.subplots(2, 1, figsize=(8.27, 11.69))
-        fig.suptitle("Graficas del Reporte", fontsize=16, fontweight="bold")
+        fig.patch.set_facecolor("#eef2f8")
+        fig.suptitle("Graficas del Reporte Semanal", fontsize=16, fontweight="bold", color="#102a43")
 
         days = [row.date[-5:] for row in report.daily_overview]
         incomes = [row.income for row in report.daily_overview]
@@ -78,3 +101,31 @@ class MatplotlibPdfRenderer(PdfRenderer):
         ax_pie.set_title("Distribucion de gastos por categoria")
 
         return fig
+
+    @staticmethod
+    def _pct(value: float | None) -> str:
+        if value is None:
+            return "-"
+        return f"{value:.2f}%"
+
+    @staticmethod
+    def _build_weekly_health(
+        *,
+        net: float,
+        savings_rate: float | None,
+        expense_ratio: float | None,
+    ) -> tuple[str, str]:
+        if net < 0 or (expense_ratio is not None and expense_ratio > 100):
+            return (
+                "Atencion",
+                "La semana cerro con presion de caja. Prioriza liquidez, reduce gasto variable y evita financiar consumo con deuda.",
+            )
+        if savings_rate is not None and savings_rate >= 20:
+            return (
+                "Solida",
+                "La semana conserva un margen de ahorro sano. Separa el excedente temprano y manten control sobre categorias variables.",
+            )
+        return (
+            "Estable",
+            "La semana esta controlada, pero el margen de ahorro puede mejorar con topes por categoria y seguimiento diario.",
+        )
